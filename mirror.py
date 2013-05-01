@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__author__ = "Brett Slatkin (bslatkin@gmail.com)"
+__author__ = "Aayush Ahuja( aayushahuja@gmail.com )"
 
 import datetime
 import hashlib
@@ -133,9 +133,7 @@ class MirroredContent(object):
 
     logging.debug("Fetching '%s'", mirrored_url)
     try:
-        rpc = urlfetch.create_rpc()
-        response = urlfetch.make_fetch_call(rpc, mirrored_url)
-        #response = urlfetch.fetch(mirrored_url)
+      response = urlfetch.fetch(mirrored_url)
     except (urlfetch.Error, apiproxy_errors.Error):
       logging.exception("Could not fetch URL")
       return None
@@ -280,9 +278,51 @@ class MirrorHandler(BaseHandler):
     self.response.out.write(content.data)
 
 
+class AdminHandler(webapp.RequestHandler):
+  def get(self):
+    self.response.headers['content-type'] = 'text/plain'
+    self.response.out.write(str(memcache.get_stats()))
+
+
+class KaboomHandler(webapp.RequestHandler):
+  def get(self):
+    self.response.headers['content-type'] = 'text/plain'
+    self.response.out.write('Flush successful: %s' % memcache.flush_all())
+
+
+class CleanupHandler(webapp.RequestHandler):
+  """Cleans up EntryPoint records."""
+
+  def get(self):
+    keep_cleaning = True
+    try:
+      content_list = EntryPoint.gql('ORDER BY last_updated').fetch(25)
+      keep_cleaning = (len(content_list) > 0)
+      db.delete(content_list)
+      
+      if content_list:
+        message = "Deleted %d entities" % len(content_list)
+      else:
+        keep_cleaning = False
+        message = "Done"
+    except (db.Error, apiproxy_errors.Error), e:
+      keep_cleaning = True
+      message = "%s: %s" % (e.__class__, e)
+
+    context = {  
+      'keep_cleaning': keep_cleaning,
+      'message': message,
+    }
+    self.response.out.write(template.render('cleanup.html', context))
+
+################################################################################
+
 app = webapp.WSGIApplication([
   (r"/", HomeHandler),
   (r"/main", HomeHandler),
+  (r"/kaboom", KaboomHandler),
+  (r"/admin", AdminHandler),
+  (r"/cleanup", CleanupHandler),
   (r"/([^/]+).*", MirrorHandler)
 ], debug=DEBUG)
 
